@@ -72,6 +72,15 @@ where
     process: T,
 }
 
+impl<T> ProcessIdentifier for TracedProcess<T>
+where
+    T: ProcessIdentifier,
+{
+    fn pid(&self) -> pid_t {
+        self.process.pid()
+    }
+}
+
 #[allow(unused)]
 enum WaitOptions {
     None,
@@ -222,9 +231,11 @@ where
         current_registers.set_program_counter(func_address);
         if (current_registers.program_counter() & 1) != 0 {
             current_registers.set_program_counter(current_registers.program_counter() & !1);
-            current_registers.set_cpsr(current_registers.cpsr() | (1 << 5));
+            current_registers
+                .set_cpsr((current_registers.cpsr() as u32 | (arch::CPSR_T_MASK)) as usize);
         } else {
-            current_registers.set_cpsr(current_registers.cpsr() & !(1 << 5));
+            current_registers
+                .set_cpsr((current_registers.cpsr() as u32 & !(arch::CPSR_T_MASK)) as usize);
         }
         current_registers.set_lr(return_address);
         tracing::trace!(
@@ -296,8 +307,7 @@ where
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
-                current_registers.stack_pointer()
-                    - (stack_arguments.len() * size_of::<usize>()) as u32,
+                current_registers.stack_pointer() - (stack_arguments.len() * size_of::<usize>()),
             );
 
             self.write_memory(current_registers.stack_pointer() as usize, unsafe {
@@ -306,14 +316,16 @@ where
         };
 
         // set registers cached_registers
-        current_registers.set_program_counter(func_address as u32);
+        current_registers.set_program_counter(func_address);
         if (current_registers.program_counter() & 1) != 0 {
             current_registers.set_program_counter(current_registers.program_counter() & !1);
-            current_registers.set_cpsr(current_registers.cpsr() | (1 << 5));
+            current_registers
+                .set_cpsr((current_registers.cpsr() as u32 | (arch::CPSR_T_MASK)) as usize);
         } else {
-            current_registers.set_cpsr(current_registers.cpsr() & !(1 << 5));
+            current_registers
+                .set_cpsr((current_registers.cpsr() as u32 & !(arch::CPSR_T_MASK)) as usize);
         }
-        current_registers.set_lr(return_address as u32);
+        current_registers.set_lr(return_address);
         tracing::trace!(
             "Executing with PC: {:X?}, and arguments {parameters:?}",
             func_address

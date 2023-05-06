@@ -1,6 +1,27 @@
+# PTRACE-DO
+
+Provides ability to use ptrace to execute functions in remote processes.
+Mostly for runtime shared library injection.
+
+## Supports
+
+Android friendly
+
+    i686-unknown-linux-gnu
+    x86_64-unknown-linux-gnu
+    aarch64-unknown-linux-gnu
+    arm-unknown-linux-gnueabi
+    i686-linux-android
+    x86_64-linux-android
+    aarch64-linux-android
+    arm-linux-androideabi
+    armv7-linux-androideabi
+
+## Example
+```rust
 use libc::pid_t;
 use proc_maps::MapRange;
-use ptrace_do::{OwnedProcess, ProcessIdentifier, RawProcess, TracedProcess};
+use ptrace_do::{ProcessIdentifier, RawProcess, TracedProcess};
 
 fn find_mod_map_fuzzy(mod_name: &str, process: &impl ProcessIdentifier) -> Option<MapRange> {
     use proc_maps::get_process_maps;
@@ -37,21 +58,8 @@ pub fn find_remote_procedure(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().init();
 
-    let mut executable_path = std::env::current_exe()?;
-    executable_path.pop();
-    executable_path.push("sample_application");
-
-    tracing::info!("Executable path is: {:?}", executable_path);
-    let process = OwnedProcess::from(
-        std::process::Command::new(executable_path)
-            .spawn()
-            .expect("spawn"),
-    );
-
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    tracing::info!("Spawned process and waited a little.");
-
-    let traced_process = TracedProcess::attach(process)?;
+    let target_pid: pid_t = 7777;
+    let traced_process = TracedProcess::attach(RawProcess::new(target_pid))?;
 
     tracing::info!("Successfully attached to the process");
 
@@ -76,3 +84,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+```
+

@@ -1,5 +1,5 @@
 #[cfg(target_arch = "x86")]
-pub mod x86 {
+mod x86 {
 
     #[repr(C)]
     #[derive(Debug, Clone)]
@@ -25,7 +25,7 @@ pub mod x86 {
 }
 
 #[cfg(target_arch = "x86_64")]
-pub mod x86_64 {
+mod x86_64 {
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct UserRegs {
@@ -82,7 +82,7 @@ pub mod x86_64 {
 }
 
 #[cfg(target_arch = "arm")]
-pub mod arm {
+mod arm {
 
     pub const CPSR_T_MASK: u32 = 1 << 5;
 
@@ -105,7 +105,7 @@ pub mod arm {
         }
 
         pub fn set_stack_pointer(&mut self, stack_pointer: usize) {
-            self.regs[13] = stack_pointer as u64
+            self.regs[13] = stack_pointer as u32
         }
 
         pub fn lr(&self) -> usize {
@@ -113,7 +113,7 @@ pub mod arm {
         }
 
         pub fn set_lr(&mut self, lr: usize) {
-            self.regs[14] = lr as u64
+            self.regs[14] = lr as u32
         }
 
         pub fn program_counter(&self) -> usize {
@@ -121,7 +121,7 @@ pub mod arm {
         }
 
         pub fn set_program_counter(&mut self, program_counter: usize) {
-            self.regs[15] = program_counter as u64
+            self.regs[15] = program_counter as u32
         }
 
         pub fn cpsr(&self) -> usize {
@@ -129,13 +129,15 @@ pub mod arm {
         }
 
         pub fn set_cpsr(&mut self, cpsr: usize) {
-            self.regs[16] = cpsr as u64
+            self.regs[16] = cpsr as u32
         }
     }
 }
 
 #[cfg(target_arch = "aarch64")]
-pub mod aarch64 {
+mod aarch64 {
+
+    pub const CPSR_T_MASK: u32 = 1 << 5;
 
     #[repr(C)]
     #[derive(Debug, Clone)]
