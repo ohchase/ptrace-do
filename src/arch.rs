@@ -59,6 +59,10 @@ pub mod x86_64 {
     }
 
     impl UserRegs {
+        pub fn return_value(&self) -> usize {
+            self.rax as usize
+        }
+
         pub fn program_counter(&self) -> usize {
             self.rip as usize
         }

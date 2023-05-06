@@ -8,5 +8,8 @@ edition = "2021"
 [dependencies]
 libc = "0.2.140"
 thiserror = "1.0.40"
-proc-maps = "0.3.0"
 tracing = "0.1.37"
+
+[dev-dependencies]
+tracing-subscriber = "0.3.17"
+proc-maps = "0.3.0"

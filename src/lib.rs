@@ -2,7 +2,6 @@ mod arch;
 use arch::UserRegs;
 
 use libc::{pid_t, ptrace, PTRACE_ATTACH, PTRACE_CONT, PTRACE_DETACH};
-use proc_maps::MapRange;
 use std::{mem, process::Child};
 use thiserror::Error;
 
@@ -34,13 +33,19 @@ impl ProcessIdentifier for RawProcess {
     }
 }
 
+impl RawProcess {
+    pub fn new(pid: pid_t) -> Self {
+        Self { pid }
+    }
+}
+
 pub struct OwnedProcess {
     child: Child,
 }
 
-impl OwnedProcess {
-    pub fn of_child(child: Child) -> Self {
-        Self { child }
+impl From<Child> for OwnedProcess {
+    fn from(value: Child) -> Self {
+        Self { child: value }
     }
 }
 
@@ -48,6 +53,8 @@ impl Drop for OwnedProcess {
     fn drop(&mut self) {
         if let Err(e) = self.child.kill() {
             tracing::error!("Unable to kill owned process's child {e:?}");
+        } else {
+            tracing::info!("Owned process has been killed.");
         }
     }
 }
@@ -193,7 +200,7 @@ where
             .enumerate()
         {
             let reg: usize = *param;
-            current_registers.regs[i] = reg;
+            current_registers.regs[i] = reg as u64;
             tracing::info!("Applying register {i} with param {}", reg);
         }
 
@@ -206,10 +213,9 @@ where
                 current_registers.stack_pointer() - (stack_arguments.len() * size_of::<usize>()),
             );
 
-            self.write_memory(
-                current_registers.stack_pointer(),
-                bytemuck::cast_slice(stack_arguments),
-            )?;
+            self.write_memory(current_registers.stack_pointer(), unsafe {
+                std::mem::transmute(stack_arguments)
+            })?;
         };
 
         // set registers cached_registers
@@ -294,10 +300,9 @@ where
                     - (stack_arguments.len() * size_of::<usize>()) as u32,
             );
 
-            self.write_memory(
-                current_registers.stack_pointer() as usize,
-                bytemuck::cast_slice(stack_arguments),
-            )?;
+            self.write_memory(current_registers.stack_pointer() as usize, unsafe {
+                std::mem::transmute(stack_arguments)
+            })?;
         };
 
         // set registers cached_registers
@@ -329,6 +334,7 @@ where
     pub fn invoke_remote(
         mut self,
         func_address: usize,
+        return_address: usize,
         parameters: &[usize],
     ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
         use std::mem::size_of;
@@ -371,25 +377,34 @@ where
             current_registers.set_stack_pointer(
                 current_registers.stack_pointer() - (stack_arguments.len() * size_of::<usize>()),
             );
-
             self.write_memory(current_registers.stack_pointer(), unsafe {
                 std::mem::transmute(stack_arguments)
             })?;
         };
 
+        // return address is bottom of stack!
+        current_registers.set_stack_pointer(current_registers.stack_pointer() - size_of::<usize>());
+        self.write_memory(
+            current_registers.stack_pointer(),
+            &return_address.to_le_bytes(),
+        )?;
+
+        current_registers.rax = 0;
+        current_registers.orig_rax = 0;
+
         // set registers cached_registers
         current_registers.set_program_counter(func_address);
-        tracing::trace!(
+        tracing::info!(
             "Executing with PC: {:X?}, and arguments {parameters:?}",
             func_address
         );
 
         self.set_registers(current_registers)?;
-        tracing::trace!("Registers successfully injected.");
+        tracing::info!("Registers successfully injected.");
 
         let mut frame = self.step_cont()?;
         let result_regs = frame.query_registers()?;
-        tracing::trace!("Result {result_regs:#?}");
+        tracing::info!("Result {result_regs:#?}");
 
         frame.set_registers(cached_registers)?;
         Ok((result_regs, frame))
@@ -425,16 +440,6 @@ where
     }
 }
 
-fn find_module_map_internal(mod_name: &str) -> TraceResult<Option<MapRange>> {
-    use proc_maps::get_process_maps;
-
-    let maps = get_process_maps(std::process::id() as libc::pid_t)?;
-    Ok(maps.into_iter().find(|m| match m.filename() {
-        Some(p) => p.to_str().expect("str") == mod_name,
-        None => false,
-    }))
-}
-
 impl<T> Drop for TracedProcess<T>
 where
     T: ProcessIdentifier,
@@ -466,44 +471,6 @@ where
             true => Err(TraceError::Ptrace(std::io::Error::last_os_error())),
             false => Ok(Self { process }),
         }
-    }
-
-    fn find_module_map(&self, mod_name: &str) -> TraceResult<Option<MapRange>> {
-        use proc_maps::get_process_maps;
-
-        let maps = get_process_maps(self.process.pid())?;
-        Ok(maps.into_iter().find(|m| match m.filename() {
-            Some(p) => p.to_str().expect("str") == mod_name,
-            None => false,
-        }))
-    }
-
-    pub fn find_remote_procedure(
-        &self,
-        mod_name: &str,
-        function_address: usize,
-    ) -> TraceResult<Option<usize>> {
-        let Some(remote_module) = self.find_module_map(mod_name)? else {
-            tracing::warn!("Unable to identify {mod_name:?} externally");
-            return Ok(None);
-        };
-        tracing::info!(
-            "Identifed remote range {mod_name:?} at {:X?}",
-            remote_module.start()
-        );
-
-        let Some(internal_module) = find_module_map_internal(mod_name)? else {
-            tracing::warn!("Unable to identify {mod_name:?} internally");
-            return Ok(None);
-        };
-        tracing::info!(
-            "Identifed internal range {mod_name:?} at {:X?}",
-            internal_module.start()
-        );
-
-        Ok(Some(
-            function_address - internal_module.start() + remote_module.start(),
-        ))
     }
 
     pub fn pid(&self) -> pid_t {
