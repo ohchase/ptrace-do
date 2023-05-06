@@ -60,7 +60,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let target_pid: pid_t = 7777;
     let traced_process = TracedProcess::attach(RawProcess::new(target_pid))?;
-
     tracing::info!("Successfully attached to the process");
 
     let libc_path = "libc";
