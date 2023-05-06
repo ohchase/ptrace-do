@@ -1,3 +1,5 @@
+/// Example of invoking getpid in a remote `OwnedProcess` versus a raw one
+/// An owned process wraps a child and kills it when the traceer is dropped.
 use libc::pid_t;
 use proc_maps::MapRange;
 use ptrace_do::{OwnedProcess, ProcessIdentifier, RawProcess, TracedProcess};

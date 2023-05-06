@@ -3,21 +3,23 @@
 Provides ability to use ptrace to execute functions in remote processes.
 Mostly for runtime shared library injection.
 
-## Supports
+## Support
+### Look at all these ~~chickens~~ targets
+- ![i686-unknown-linux-gnu](https://github.com/ohchase/ptrace-do/actions/workflows/i686-unknown-linux-gnu.yml/badge.svg)
+- ![x86_64-unknown-linux-gnu](https://github.com/ohchase/ptrace-do/actions/workflows/x86_64-unknown-linux-gnu.yml/badge.svg)
+- ![aarch64-unknown-linux-gnu](https://github.com/ohchase/ptrace-do/actions/workflows/aarch64-unknown-linux-gnu.yml/badge.svg)
+- ![arm-unknown-linux-gnueabi](https://github.com/ohchase/ptrace-do/actions/workflows/arm-unknown-linux-gnueabi.yml/badge.svg)
+- ![i686-linux-android](https://github.com/ohchase/ptrace-do/actions/workflows/i686-linux-android.yml/badge.svg)
+- ![x86_64-linux-android](https://github.com/ohchase/ptrace-do/actions/workflows/x86_64-linux-android.yml/badge.svg)
+- ![aarch64-linux-android](https://github.com/ohchase/ptrace-do/actions/workflows/aarch64-linux-android.yml/badge.svg)
+- ![arm-linux-androideabi](https://github.com/ohchase/ptrace-do/actions/workflows/arm-linux-androideabi.yml/badge.svg)
+- ![armv7-linux-androideabi](https://github.com/ohchase/ptrace-do/actions/workflows/armv7-linux-androideabi.yml/badge.svg)
 
-Android friendly
-
-    i686-unknown-linux-gnu
-    x86_64-unknown-linux-gnu
-    aarch64-unknown-linux-gnu
-    arm-unknown-linux-gnueabi
-    i686-linux-android
-    x86_64-linux-android
-    aarch64-linux-android
-    arm-linux-androideabi
-    armv7-linux-androideabi
+## Relevant
+Yaui (Yet another unix injector...)
 
 ## Example
+### Invoking Libc Getpid in a remote process
 ```rust
 use libc::pid_t;
 use proc_maps::MapRange;
@@ -60,6 +62,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let target_pid: pid_t = 7777;
     let traced_process = TracedProcess::attach(RawProcess::new(target_pid))?;
+
+    // OwnedProcess / Die on detach
+    // 
+    // let process = OwnedProcess::from(
+    //    std::process::Command::new(executable_path)
+    //        .spawn()
+    //        .expect("spawn"));
+    //
+    // let traced_process = TracedProcess::attach(process)?;
+
+
     tracing::info!("Successfully attached to the process");
 
     let libc_path = "libc";

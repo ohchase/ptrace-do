@@ -1,3 +1,4 @@
+/// Example of getting pid of process by simply specifying the pid
 use libc::pid_t;
 use proc_maps::MapRange;
 use ptrace_do::{ProcessIdentifier, RawProcess, TracedProcess};
