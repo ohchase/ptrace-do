@@ -22,6 +22,28 @@ mod x86 {
         pub esp: i32,
         pub xss: i32,
     }
+
+    impl UserRegs {
+        pub fn return_value(&self) -> usize {
+            self.eax as usize
+        }
+
+        pub fn program_counter(&self) -> usize {
+            self.eip as usize
+        }
+
+        pub fn set_program_counter(&mut self, program_counter: usize) {
+            self.eip = program_counter as i32
+        }
+
+        pub fn stack_pointer(&self) -> usize {
+            self.esp as usize
+        }
+
+        pub fn set_stack_pointer(&mut self, stack_pointer: usize) {
+            self.esp = stack_pointer as i32
+        }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]

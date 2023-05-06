@@ -342,6 +342,62 @@ where
         Ok((result_regs, frame))
     }
 
+    #[cfg(target_arch = "x86")]
+    pub fn invoke_remote(
+        mut self,
+        func_address: usize,
+        return_address: usize,
+        parameters: &[usize],
+    ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
+        use std::mem::size_of;
+
+        let mut current_registers = self.query_registers()?;
+        tracing::info!(
+            "Initial registers acquired Current PC: {:X?}",
+            current_registers.program_counter()
+        );
+
+        let cached_registers = current_registers.clone();
+        let param_count = parameters.len();
+
+        tracing::info!("Function parameters: {:?}", parameters);
+
+        // adjust stack pointer
+        current_registers.set_stack_pointer(
+            current_registers.stack_pointer() - (param_count * size_of::<usize>()),
+        );
+        self.write_memory(current_registers.stack_pointer(), unsafe {
+            std::mem::transmute(parameters)
+        })?;
+
+        // return address is bottom of stack!
+        current_registers.set_stack_pointer(current_registers.stack_pointer() - size_of::<usize>());
+        self.write_memory(
+            current_registers.stack_pointer(),
+            &return_address.to_le_bytes(),
+        )?;
+
+        current_registers.eax = 0;
+        current_registers.orig_eax = 0;
+
+        // set registers cached_registers
+        current_registers.set_program_counter(func_address);
+        tracing::info!(
+            "Executing with PC: {:X?}, and arguments {parameters:?}",
+            func_address
+        );
+
+        self.set_registers(current_registers)?;
+        tracing::info!("Registers successfully injected.");
+
+        let mut frame = self.step_cont()?;
+        let result_regs = frame.query_registers()?;
+        tracing::info!("Result {result_regs:#?}");
+
+        frame.set_registers(cached_registers)?;
+        Ok((result_regs, frame))
+    }
+
     #[cfg(target_arch = "x86_64")]
     pub fn invoke_remote(
         mut self,
