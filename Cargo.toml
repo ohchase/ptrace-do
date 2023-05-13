@@ -9,7 +9,7 @@ documentation = "https://docs.rs/ptrace-do"
 readme = "README.md"
 repository = "https://github.com/ohchase/ptrace-do/"
 homepage = "https://github.com/ohchase/ptrace-do/"
-keywords = ["hacking", "linux", "android", "reversing", "ptrace", "injection", "trace"]
+keywords = ["hacking", "linux", "android", "ptrace", "trace"]
 exclude = ["/examples"]
 
 [lib]
