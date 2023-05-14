@@ -198,7 +198,7 @@ where
 
         const REGISTER_ARGUMENTS: usize = 8;
         let mut current_registers = self.query_registers()?;
-        tracing::info!(
+        tracing::trace!(
             "Initial registers acquired Current PC: {:X?}",
             current_registers.program_counter()
         );
@@ -210,12 +210,12 @@ where
         {
             let reg: usize = *param;
             current_registers.regs[i] = reg as u64;
-            tracing::info!("Applying register {i} with param {}", reg);
+            tracing::trace!("Applying register {i} with param {}", reg);
         }
 
         if parameters.len() > REGISTER_ARGUMENTS {
             let stack_arguments = &parameters[REGISTER_ARGUMENTS..];
-            tracing::info!("Remaining stack arguments: {:?}", stack_arguments);
+            tracing::trace!("Remaining stack arguments: {:?}", stack_arguments);
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
@@ -280,7 +280,7 @@ where
         mut self,
         func_address: usize,
         return_address: usize,
-        parameters: &[u32],
+        parameters: &[usize],
     ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
         use std::mem::size_of;
 
@@ -296,21 +296,21 @@ where
             .iter()
             .enumerate()
         {
-            let reg: u32 = (*param).into();
+            let reg: u32 = (*param).try_into().unwrap();
             current_registers.regs[i] = reg;
-            tracing::info!("Applying register {i} with param {}", reg);
+            tracing::trace!("Applying register {i} with param {}", reg);
         }
 
         if parameters.len() > REGISTER_ARGUMENTS {
             let stack_arguments = &parameters[REGISTER_ARGUMENTS..];
-            tracing::info!("Remaining stack arguments: {:?}", stack_arguments);
+            tracing::trace!("Remaining stack arguments: {:?}", stack_arguments);
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
                 current_registers.stack_pointer() - (stack_arguments.len() * size_of::<usize>()),
             );
 
-            self.write_memory(current_registers.stack_pointer() as usize, unsafe {
+            self.write_memory(current_registers.stack_pointer(), unsafe {
                 std::mem::transmute(stack_arguments)
             })?;
         };
@@ -352,7 +352,7 @@ where
         use std::mem::size_of;
 
         let mut current_registers = self.query_registers()?;
-        tracing::info!(
+        tracing::trace!(
             "Initial registers acquired Current PC: {:X?}",
             current_registers.program_counter()
         );
@@ -360,7 +360,7 @@ where
         let cached_registers = current_registers.clone();
         let param_count = parameters.len();
 
-        tracing::info!("Function parameters: {:?}", parameters);
+        tracing::trace!("Function parameters: {:?}", parameters);
 
         // adjust stack pointer
         current_registers.set_stack_pointer(
@@ -382,17 +382,17 @@ where
 
         // set registers cached_registers
         current_registers.set_program_counter(func_address);
-        tracing::info!(
+        tracing::trace!(
             "Executing with PC: {:X?}, and arguments {parameters:?}",
             func_address
         );
 
         self.set_registers(current_registers)?;
-        tracing::info!("Registers successfully injected.");
+        tracing::trace!("Registers successfully injected.");
 
         let mut frame = self.step_cont()?;
         let result_regs = frame.query_registers()?;
-        tracing::info!("Result {result_regs:#?}");
+        tracing::trace!("Result {result_regs:#?}");
 
         frame.set_registers(cached_registers)?;
         Ok((result_regs, frame))
@@ -439,7 +439,7 @@ where
 
         if parameters.len() > REGISTER_ARGUMENTS {
             let stack_arguments = &parameters[REGISTER_ARGUMENTS..];
-            tracing::info!("Remaining stack arguments: {:?}", stack_arguments);
+            tracing::trace!("Remaining stack arguments: {:?}", stack_arguments);
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
@@ -462,13 +462,13 @@ where
 
         // set registers cached_registers
         current_registers.set_program_counter(func_address);
-        tracing::info!(
+        tracing::trace!(
             "Executing with PC: {:X?}, and arguments {parameters:?}",
             func_address
         );
 
         self.set_registers(current_registers)?;
-        tracing::info!("Registers successfully injected.");
+        tracing::trace!("Registers successfully injected.");
 
         let mut frame = self.step_cont()?;
         let result_regs = frame.query_registers()?;
