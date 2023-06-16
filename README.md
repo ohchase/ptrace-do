@@ -16,7 +16,9 @@ Mostly for runtime shared library injection.
 - ![armv7-linux-androideabi](https://github.com/ohchase/ptrace-do/actions/workflows/armv7-linux-androideabi.yml/badge.svg)
 
 ## Relevant
-Yaui (Yet another unix injector...)
+Yaui (Yet another unix injector...) 
+
+https://github.com/ohchase/yaui
 
 ## Example
 ### Invoking Libc Getpid in a remote process
