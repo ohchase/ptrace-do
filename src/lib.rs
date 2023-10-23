@@ -212,6 +212,7 @@ where
         );
 
         let cached_registers = current_registers.clone();
+        current_registers.set_stack_pointer(current_registers.stack_pointer() & !0xfusize);
         for (i, param) in parameters[..std::cmp::min(parameters.len(), REGISTER_ARGUMENTS)]
             .iter()
             .enumerate()
@@ -227,7 +228,7 @@ where
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
-                current_registers.stack_pointer() - (stack_arguments.len() * size_of::<usize>()),
+                current_registers.stack_pointer() - (((stack_arguments.len() + 1) & !1usize) * size_of::<usize>()),
             );
 
             self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(stack_arguments).as_slice())?;
@@ -298,6 +299,7 @@ where
         );
 
         let cached_registers = current_registers.clone();
+        current_registers.set_stack_pointer(current_registers.stack_pointer() & !0xfusize);
         for (i, param) in parameters[..std::cmp::min(parameters.len(), REGISTER_ARGUMENTS)]
             .iter()
             .enumerate()
@@ -313,7 +315,7 @@ where
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
-                current_registers.stack_pointer() - (stack_arguments.len() * size_of::<usize>()),
+                current_registers.stack_pointer() - (((stack_arguments.len() + 3) & !3usize) * size_of::<usize>()),
             );
 
             self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(stack_arguments).as_slice())?;
@@ -363,14 +365,17 @@ where
 
         let cached_registers = current_registers.clone();
         let param_count = parameters.len();
+        current_registers.set_stack_pointer(current_registers.stack_pointer() & !0xfusize);
 
         tracing::trace!("Function parameters: {:?}", parameters);
 
-        // adjust stack pointer
-        current_registers.set_stack_pointer(
-            current_registers.stack_pointer() - (param_count * size_of::<usize>()),
-        );
-        self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(parameters).as_slice())?;
+        if param_count > 0 {
+            // adjust stack pointer
+            current_registers.set_stack_pointer(
+                current_registers.stack_pointer() - (((param_count + 3) & !3usize) * size_of::<usize>()),
+            );
+            self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(parameters).as_slice())?;
+        }
 
         // return address is bottom of stack!
         current_registers.set_stack_pointer(current_registers.stack_pointer() - size_of::<usize>());
@@ -418,6 +423,7 @@ where
 
         let cached_registers = current_registers.clone();
         let param_count = parameters.len();
+        current_registers.set_stack_pointer(current_registers.stack_pointer() & !0xfusize);
 
         // You gotta a better idea???????
         if param_count > 0 {
@@ -445,7 +451,7 @@ where
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
-                current_registers.stack_pointer() - (stack_arguments.len() * size_of::<usize>()),
+                current_registers.stack_pointer() - (((stack_arguments.len() + 1) & !1usize) * size_of::<usize>()),
             );
             self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(stack_arguments).as_slice())?;
         };
