@@ -65,18 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_pid: pid_t = 7777;
     let traced_process = TracedProcess::attach(RawProcess::new(target_pid))?;
 
-    // OwnedProcess / Die on detach
-    // 
-    // let process = OwnedProcess::from(
-    //    std::process::Command::new(executable_path)
-    //        .spawn()
-    //        .expect("spawn"));
-    //
-    // let traced_process = TracedProcess::attach(process)?;
-
-
     tracing::info!("Successfully attached to the process");
-
     let libc_path = "libc";
     let getpid_remote_procedure = find_remote_procedure(
         libc_path,
