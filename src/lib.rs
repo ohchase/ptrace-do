@@ -101,6 +101,15 @@ where
     process: T,
 }
 
+impl<T> ProcessIdentifier for TracedProcess<T>
+where
+    T: ProcessIdentifier,
+{
+    fn pid(&self) -> pid_t {
+        self.process.pid()
+    }
+}
+
 /// The available wait options
 #[allow(unused)]
 enum WaitOptions {
