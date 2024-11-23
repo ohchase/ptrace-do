@@ -5,32 +5,46 @@ use libc::{pid_t, ptrace, PTRACE_ATTACH, PTRACE_CONT, PTRACE_DETACH};
 use std::{mem, process::Child};
 use thiserror::Error;
 
+/// Utility function that converts the usize inputs individually with the appropriate endianness into a Vec<u8>
 fn usize_arr_to_u8(data: &[usize]) -> Vec<u8> {
     let mut arr: Vec<u8> = Vec::new();
     for p in data {
-        arr.extend_from_slice(&p.to_le_bytes());
+        if cfg!(target_endian = "big") {
+            arr.extend_from_slice(&p.to_be_bytes());
+        } else {
+            arr.extend_from_slice(&p.to_le_bytes());
+        }
     }
     return arr;
 }
 
+/// Enum containing all errors tracing can witness
 #[derive(Debug, Error)]
 pub enum TraceError {
+    /// Error spawning from syscall interactions
     #[error("Ptrace error: `{0}`")]
     Ptrace(std::io::Error),
 
+    /// Error during read and writing of process's memory
     #[error("IO Error: `{0}`")]
     Io(#[from] std::io::Error),
 
+    /// Contexted error
     #[error("General `{0}`")]
     General(&'static str),
 }
 
+/// Internal Result type
 type TraceResult<T> = Result<T, TraceError>;
 
+/// Trait representing the type represents a process and has a unique process identifier, pid.
 pub trait ProcessIdentifier {
+    /// Acces the pid
     fn pid(&self) -> pid_t;
 }
 
+/// A raw process, initialized by an explicit pid. Unsafe and prone to permission errors beware,
+/// know your environment and security restrictions.
 pub struct RawProcess {
     pid: pid_t,
 }
@@ -42,21 +56,26 @@ impl ProcessIdentifier for RawProcess {
 }
 
 impl RawProcess {
+    /// Initialize raw process with the explicit pid
     pub fn new(pid: pid_t) -> Self {
         Self { pid }
     }
 }
 
+/// An owned process.
 pub struct OwnedProcess {
     child: Child,
 }
 
+/// An owned process can be initialized from a Child os process
 impl From<Child> for OwnedProcess {
     fn from(value: Child) -> Self {
         Self { child: value }
     }
 }
 
+/// Will attempt to kill the child on drop.
+/// Never panics only logs an error
 impl Drop for OwnedProcess {
     fn drop(&mut self) {
         if let Err(e) = self.child.kill() {
@@ -73,6 +92,8 @@ impl ProcessIdentifier for OwnedProcess {
     }
 }
 
+/// A process actively being traced.
+/// Simply a wrapper around a type with an identifiable process identifier.
 pub struct TracedProcess<T>
 where
     T: ProcessIdentifier,
@@ -89,6 +110,7 @@ where
     }
 }
 
+/// The available wait options
 #[allow(unused)]
 enum WaitOptions {
     None,
@@ -97,6 +119,7 @@ enum WaitOptions {
     Continued,
 }
 
+/// A wait option can be extracted from an i32
 impl From<WaitOptions> for i32 {
     fn from(val: WaitOptions) -> Self {
         match val {
@@ -108,25 +131,31 @@ impl From<WaitOptions> for i32 {
     }
 }
 
+/// Wait status result of a ptrace step
 struct WaitStatus(i32);
 
 impl WaitStatus {
+    /// is stopped status
     fn is_stop(&self) -> bool {
         libc::WIFSTOPPED(self.0)
     }
 
+    /// is signaled status
     fn is_signaled(&self) -> bool {
         libc::WIFSIGNALED(self.0)
     }
 
+    /// is continued status
     fn is_continued(&self) -> bool {
         libc::WIFCONTINUED(self.0)
     }
 
+    /// is exited status
     fn is_exited(&self) -> bool {
         libc::WIFEXITED(self.0)
     }
 
+    /// is stopcode status
     fn stop_code(&self) -> i32 {
         libc::WSTOPSIG(self.0)
     }
@@ -144,6 +173,9 @@ impl std::fmt::Debug for WaitStatus {
     }
 }
 
+/// Represents a traced process which is in the process of building a `frame`.
+/// `frame` can be thought of a mutable view into a stopped process's execution.
+/// Given you own a process frame, it is an appropriate time to edit registers, change instructions, and edit memory.
 pub struct ProcessFrame<T>
 where
     T: ProcessIdentifier,
@@ -151,19 +183,12 @@ where
     process: TracedProcess<T>,
 }
 
-impl<T> std::fmt::Debug for ProcessFrame<T>
-where
-    T: ProcessIdentifier,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ProcessFrame ( pid: {} )", self.process.pid())
-    }
-}
-
 impl<T> ProcessFrame<T>
 where
     T: ProcessIdentifier,
 {
+    /// aarch64 specific get registers functionality.
+    /// uses iovec's and GETREGSET
     #[cfg(target_arch = "aarch64")]
     pub fn query_registers(&mut self) -> TraceResult<UserRegs> {
         let mut registers: UserRegs = unsafe { mem::zeroed() };
@@ -180,6 +205,8 @@ where
         }
     }
 
+    /// aarch64 specific set registers functionality.
+    /// uses iovec's and SETREGSET
     #[cfg(target_arch = "aarch64")]
     pub fn set_registers(&mut self, mut registers: UserRegs) -> TraceResult<()> {
         let mut iovec = libc::iovec {
@@ -195,6 +222,9 @@ where
         }
     }
 
+    /// Attempts to invoke a remote function with the provided parameters.
+    /// Internally this is an os cfg controlled function that write the inputted parameters according to the architectures expectations.
+    /// Additionally it prepares the provided return address
     #[cfg(target_arch = "aarch64")]
     pub fn invoke_remote(
         mut self,
@@ -228,10 +258,14 @@ where
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
-                current_registers.stack_pointer() - (((stack_arguments.len() + 1) & !1usize) * size_of::<usize>()),
+                current_registers.stack_pointer()
+                    - (((stack_arguments.len() + 1) & !1usize) * size_of::<usize>()),
             );
 
-            self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(stack_arguments).as_slice())?;
+            self.write_memory(
+                current_registers.stack_pointer(),
+                usize_arr_to_u8(stack_arguments).as_slice(),
+            )?;
         };
 
         // set registers cached_registers
@@ -261,6 +295,8 @@ where
         Ok((result_regs, frame))
     }
 
+    /// gets process frame registers.
+    /// internally uses GETREGS
     #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm"))]
     pub fn query_registers(&mut self) -> TraceResult<UserRegs> {
         let mut registers: UserRegs = unsafe { mem::zeroed() };
@@ -272,6 +308,8 @@ where
         }
     }
 
+    /// sets a process frame registers.
+    /// internally uses SETREGS
     #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm"))]
     pub fn set_registers(&mut self, registers: UserRegs) -> TraceResult<()> {
         let result = unsafe { ptrace(libc::PTRACE_SETREGS, self.process.pid(), 0, &registers) };
@@ -282,6 +320,9 @@ where
         }
     }
 
+    /// Attempts to invoke a remote function with the provided parameters.
+    /// Internally this is an os cfg controlled function that write the inputted parameters according to the architectures expectations.
+    /// Additionally it prepares the provided return address
     #[cfg(target_arch = "arm")]
     pub fn invoke_remote(
         mut self,
@@ -315,10 +356,14 @@ where
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
-                current_registers.stack_pointer() - (((stack_arguments.len() + 3) & !3usize) * size_of::<usize>()),
+                current_registers.stack_pointer()
+                    - (((stack_arguments.len() + 3) & !3usize) * size_of::<usize>()),
             );
 
-            self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(stack_arguments).as_slice())?;
+            self.write_memory(
+                current_registers.stack_pointer(),
+                usize_arr_to_u8(stack_arguments).as_slice(),
+            )?;
         };
 
         // set registers cached_registers
@@ -348,6 +393,9 @@ where
         Ok((result_regs, frame))
     }
 
+    /// Attempts to invoke a remote function with the provided parameters.
+    /// Internally this is an os cfg controlled function that write the inputted parameters according to the architectures expectations.
+    /// Additionally it prepares the provided return address
     #[cfg(target_arch = "x86")]
     pub fn invoke_remote(
         mut self,
@@ -372,9 +420,13 @@ where
         if param_count > 0 {
             // adjust stack pointer
             current_registers.set_stack_pointer(
-                current_registers.stack_pointer() - (((param_count + 3) & !3usize) * size_of::<usize>()),
+                current_registers.stack_pointer()
+                    - (((param_count + 3) & !3usize) * size_of::<usize>()),
             );
-            self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(parameters).as_slice())?;
+            self.write_memory(
+                current_registers.stack_pointer(),
+                usize_arr_to_u8(parameters).as_slice(),
+            )?;
         }
 
         // return address is bottom of stack!
@@ -405,6 +457,9 @@ where
         Ok((result_regs, frame))
     }
 
+    /// Attempts to invoke a remote function with the provided parameters.
+    /// Internally this is an os cfg controlled function that write the inputted parameters according to the architectures expectations.
+    /// Additionally it prepares the provided return address
     #[cfg(target_arch = "x86_64")]
     pub fn invoke_remote(
         mut self,
@@ -451,9 +506,13 @@ where
 
             // adjust stack pointer
             current_registers.set_stack_pointer(
-                current_registers.stack_pointer() - (((stack_arguments.len() + 1) & !1usize) * size_of::<usize>()),
+                current_registers.stack_pointer()
+                    - (((stack_arguments.len() + 1) & !1usize) * size_of::<usize>()),
             );
-            self.write_memory(current_registers.stack_pointer(), usize_arr_to_u8(stack_arguments).as_slice())?;
+            self.write_memory(
+                current_registers.stack_pointer(),
+                usize_arr_to_u8(stack_arguments).as_slice(),
+            )?;
         };
 
         // return address is bottom of stack!
@@ -484,6 +543,7 @@ where
         Ok((result_regs, frame))
     }
 
+    /// Attempts to read a process's memory from fs
     pub fn read_memory(&mut self, addr: usize, len: usize) -> TraceResult<Vec<u8>> {
         let mut data = vec![0; len];
         let len_read = self.read_memory_mut(addr, &mut data)?;
@@ -491,6 +551,7 @@ where
         Ok(data)
     }
 
+    /// Attempts to read a mutable section of a process's memory from fs
     pub fn read_memory_mut(&self, addr: usize, data: &mut [u8]) -> TraceResult<usize> {
         use std::os::unix::fs::FileExt;
         let mem = std::fs::File::open(self.process.proc_mem_path())?;
@@ -498,6 +559,7 @@ where
         Ok(len)
     }
 
+    /// Attempts to write to a section of the process's memory
     pub fn write_memory(&mut self, addr: usize, data: &[u8]) -> TraceResult<usize> {
         use std::os::unix::fs::FileExt;
         let mem = std::fs::OpenOptions::new()
@@ -508,12 +570,15 @@ where
         Ok(len)
     }
 
+    /// Continue the process frame, consuming self.
     fn step_cont(mut self) -> TraceResult<ProcessFrame<T>> {
         self.process.cont()?;
         self.process.next_frame()
     }
 }
 
+/// Drop implementation that attempts to ptrace detach from the process.
+/// On failure there is a warning, but this does not ever panic.
 impl<T> Drop for TracedProcess<T>
 where
     T: ProcessIdentifier,
@@ -531,6 +596,7 @@ impl<T> TracedProcess<T>
 where
     T: ProcessIdentifier,
 {
+    /// Attempt to detach from the traced process
     fn detach(&mut self) -> TraceResult<()> {
         let result = unsafe { ptrace(PTRACE_DETACH, self.pid(), 0, 0) };
         match result == -1 {
@@ -539,6 +605,7 @@ where
         }
     }
 
+    /// Attempt to attach from the traced process
     pub fn attach(process: T) -> TraceResult<Self> {
         let result = unsafe { ptrace(PTRACE_ATTACH, process.pid(), 0, 0) };
         match result == -1 {
@@ -547,10 +614,12 @@ where
         }
     }
 
+    /// pid of the actively traced process
     pub fn pid(&self) -> pid_t {
         self.process.pid()
     }
 
+    /// continue execution
     fn cont(&mut self) -> TraceResult<()> {
         let result = unsafe { ptrace(PTRACE_CONT, self.pid(), 0, 0) };
         match result == -1 {
@@ -559,6 +628,7 @@ where
         }
     }
 
+    /// wait for a status
     fn wait(&mut self, options: WaitOptions) -> TraceResult<WaitStatus> {
         let mut raw_status = 0;
         let result = unsafe { libc::waitpid(self.process.pid(), &mut raw_status, options.into()) };
@@ -571,6 +641,7 @@ where
         Ok(status)
     }
 
+    /// wait for an untraced status consuming self and opening a process frame
     pub fn next_frame(mut self) -> TraceResult<ProcessFrame<T>> {
         let wait_status = self.wait(WaitOptions::Untraced)?;
         if wait_status.is_exited() {
@@ -580,6 +651,7 @@ where
         Ok(ProcessFrame { process: self })
     }
 
+    /// path to the process's memory
     fn proc_mem_path(&self) -> String {
         format!("/proc/{}/mem", self.process.pid())
     }
