@@ -5,10 +5,15 @@ use libc::{pid_t, ptrace, PTRACE_ATTACH, PTRACE_CONT, PTRACE_DETACH};
 use std::{mem, process::Child};
 use thiserror::Error;
 
+/// Utility function that converts the usize inputs individually with the appropriate endianness into a Vec<u8>
 fn usize_arr_to_u8(data: &[usize]) -> Vec<u8> {
     let mut arr: Vec<u8> = Vec::new();
     for p in data {
-        arr.extend_from_slice(&p.to_le_bytes());
+        if cfg!(target_endian = "big") {
+            arr.extend_from_slice(&p.to_be_bytes());
+        } else {
+            arr.extend_from_slice(&p.to_le_bytes());
+        }
     }
     return arr;
 }
