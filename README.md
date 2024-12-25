@@ -1,4 +1,6 @@
-# PTRACE-DO
+# Ptrace-do
+![Crates.io](https://img.shields.io/crates/v/ptrace-do)
+![Crates.io License](https://img.shields.io/crates/l/ptrace-do)
 
 Provides ability to use ptrace to execute functions in remote processes.
 Mostly for runtime shared library injection.
