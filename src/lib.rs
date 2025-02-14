@@ -35,7 +35,7 @@ pub enum TraceError {
 }
 
 /// Internal Result type
-type TraceResult<T> = Result<T, TraceError>;
+pub type TraceResult<T> = Result<T, TraceError>;
 
 /// Trait representing the type represents a process and has a unique process identifier, pid.
 pub trait ProcessIdentifier {
