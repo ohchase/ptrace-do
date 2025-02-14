@@ -8,8 +8,9 @@
 Provides ability to use ptrace to execute functions in remote processes.
 Mostly for runtime shared library injection.
 
-## Support
-### Ptrace-do supports the primary market share of build targets to be used with crate
+## Platform Support
+
+Ptrace-do supports the primary intended platform targets where this library would be of usage
 - ![i686-unknown-linux-gnu](https://github.com/ohchase/ptrace-do/actions/workflows/i686-unknown-linux-gnu.yml/badge.svg)
 - ![x86_64-unknown-linux-gnu](https://github.com/ohchase/ptrace-do/actions/workflows/x86_64-unknown-linux-gnu.yml/badge.svg)
 - ![aarch64-unknown-linux-gnu](https://github.com/ohchase/ptrace-do/actions/workflows/aarch64-unknown-linux-gnu.yml/badge.svg)
@@ -73,12 +74,11 @@ pub fn find_remote_procedure(
 }
 
 fn main() {
-    tracing_subscriber::fmt().init();
-
     let target_pid: pid_t = 7777;
-    let traced_process = TracedProcess::attach(RawProcess::new(target_pid)).expect("active process running with desired pid");
+    let traced_process = TracedProcess::attach(RawProcess::new(target_pid))
+        .expect("active process running with desired pid");
 
-    tracing::info!("Successfully attached to the process");
+    println!("Successfully attached to the process");
     let libc_path = "libc";
     let getpid_remote_procedure = find_remote_procedure(
         libc_path,
@@ -87,16 +87,19 @@ fn main() {
         libc::getpid as usize,
     )
     .expect("active process links libc::getpid");
-    tracing::info!("Found remote getpid procedure at : {getpid_remote_procedure:X?}");
+    println!("Found remote getpid procedure at: {getpid_remote_procedure:X?}");
 
-    let frame = traced_process.next_frame().expect("able to acquire a stopped frame in the process");
+    let frame = traced_process.next_frame().expect("able to wait for a process frame");
     tracing::info!("Successfully waited for a frame");
 
+    // we do not need the frame any further after this, but if you wanted to do more function calls you would hold on to the frame for further execution.
     let (regs, _frame) = frame.invoke_remote(getpid_remote_procedure, 0, &[])?;
-    tracing::info!("Successfully executed remote getpid");
+    println!("Successfully executed remote getpid");
 
     let traceed_pid = regs.return_value() as pid_t;
-    tracing::info!("The return value (Traceed Pid) was {}", traceed_pid);
+    println!("The return value (Traceed Pid) was {traceed_pid}");
+
+    // we didn't hold on to the frame any further, but you could for instance recall getpid again here or chroot, etc...
 }
 ```
 
