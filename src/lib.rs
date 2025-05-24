@@ -81,7 +81,7 @@ impl Drop for OwnedProcess {
         if let Err(e) = self.child.kill() {
             tracing::error!("Unable to kill owned process's child {e:?}");
         } else {
-            tracing::info!("Owned process has been killed.");
+            tracing::debug!("Owned process has been killed.");
         }
     }
 }
@@ -334,7 +334,7 @@ where
 
         const REGISTER_ARGUMENTS: usize = 4;
         let mut current_registers = self.query_registers()?;
-        tracing::info!(
+        tracing::debug!(
             "Initial registers acquired Current PC: {:X?}",
             current_registers.program_counter()
         );
@@ -471,7 +471,7 @@ where
 
         const REGISTER_ARGUMENTS: usize = 6;
         let mut current_registers = self.query_registers()?;
-        tracing::info!(
+        tracing::debug!(
             "Initial registers acquired Current PC: {:X?}",
             current_registers.program_counter()
         );
@@ -537,7 +537,7 @@ where
 
         let mut frame = self.step_cont()?;
         let result_regs = frame.query_registers()?;
-        tracing::info!("Result {result_regs:#?}");
+        tracing::debug!("Result {result_regs:#?}");
 
         frame.set_registers(cached_registers)?;
         Ok((result_regs, frame))
@@ -563,7 +563,6 @@ where
     pub fn write_memory(&mut self, addr: usize, data: &[u8]) -> TraceResult<usize> {
         use std::os::unix::fs::FileExt;
         let mem = std::fs::OpenOptions::new()
-            .read(true)
             .write(true)
             .open(self.process.proc_mem_path())?;
         let len = mem.write_at(data, addr.try_into().unwrap())?;
@@ -586,7 +585,7 @@ where
     fn drop(&mut self) {
         let pid = self.pid();
         match self.detach() {
-            Ok(()) => tracing::info!("Successfully detached from Pid: {pid}"),
+            Ok(()) => tracing::debug!("Successfully detached from Pid: {pid}"),
             Err(e) => tracing::error!("Failed to detach from Pid: {pid}, {e:#?}"),
         }
     }
@@ -637,7 +636,7 @@ where
         }
 
         let status = WaitStatus(raw_status);
-        tracing::info!("{status:?}");
+        tracing::trace!("wait status {status:?}");
         Ok(status)
     }
 
