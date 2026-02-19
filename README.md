@@ -1,4 +1,4 @@
-# Ptrace-do
+# ptrace-do
 [![Rust](https://img.shields.io/badge/Rust-%23000000.svg?e&logo=rust&logoColor=white)](#)
 ![Crates.io](https://img.shields.io/crates/v/ptrace-do)
 ![Docs.rs](https://img.shields.io/docsrs/ptrace-do/latest)
@@ -22,11 +22,11 @@ Ptrace-do supports the primary intended platform targets where this library woul
 - ![armv7-linux-androideabi](https://github.com/ohchase/ptrace-do/actions/workflows/armv7-linux-androideabi.yml/badge.svg)
 
 ## Relevant
-[Yaui](https://github.com/ohchase/yaui)
+[yaui](https://github.com/ohchase/yaui)
 
 A fully Rust command line application providing a worked example command line interface for injecting shared objects into running unix processes. Serves as a great example of how this crate can be used to its fully capacity.
 
-[Plt-rs](https://github.com/ohchase/plt-rs)
+[plt-rs](https://github.com/ohchase/plt-rs)
 
 A fully Rust library providing the ability to hook a unix's application Procedural Link Table, PLT, at runtime. If you are striving to both inject a shared object into a running unix process, and would then like to detour functions such as libc::recv or libc::send for network packet inspection/augmentation; this library may of benefit for you.
 
@@ -36,73 +36,66 @@ This Rust library was named `ptrace-do`, and I want to explicitly acknowledge th
 
 ## Example
 ### Invoking Libc Getpid in a remote process
+
+In this example we fork the current application, and spawn a child process to trace over.
+This helps us avoid many security related restrictions which must be considered when using this library in practice. Definitely check out the yaui project to see about real security and access permission that must be considered when tracing external processes.
 ```rust
-use libc::pid_t;
-use proc_maps::MapRange;
-use ptrace_do::{ProcessIdentifier, RawProcess, TracedProcess};
+fn main() -> Result<()> {
+    println!("parent: process with pid: {}", process::id());
 
-fn find_mod_map_fuzzy(mod_name: &str, process: &impl ProcessIdentifier) -> Option<MapRange> {
-    use proc_maps::get_process_maps;
-    let maps = get_process_maps(process.pid()).expect("able to access proc maps");
-    maps.into_iter().find(|m| match m.filename() {
-        Some(p) => p.to_str().map(|s| s.contains(mod_name)).unwrap_or(false),
-        None => false,
-    })
+    unsafe {
+        let pid = libc::fork();
+        if pid < 0 {
+            anyhow::bail!("fork failed");
+        } else if pid == 0 {
+            // Child process - just sleep to allow tracing
+            println!("child : process started with pid: {}", process::id());
+            loop {
+                thread::sleep(Duration::from_secs(1));
+            }
+        } else {
+            // Parent process - spawn a thread to trace the child
+            println!("parent: forked child process spawned with pid: {}", pid);
+
+            // Give the child a moment to start
+            thread::sleep(Duration::from_millis(100));
+
+            println!("parent: attaching to child process {}", pid);
+
+            let traced_process = TracedProcess::attach(pid)?;
+            println!("parent: successfully attached to the process");
+
+            let frame = traced_process.next_frame()?;
+            println!("parent: successfully waited for a frame");
+
+            // Execute remote getpid in the child process
+            let (regs, _frame) = frame.invoke_remote(libc::getpid as usize, 0, &[])?;
+            println!("parent: successfully executed remote getpid");
+            let traced_pid = regs.return_value() as pid_t;
+            println!("parent: the return value (Traced Pid) was {}", traced_pid);
+
+            // Clean up: kill the child process
+            println!("parent: killing child process");
+            libc::kill(pid, libc::SIGKILL);
+            libc::waitpid(pid, std::ptr::null_mut(), 0);
+            println!("parent: child process terminated");
+        }
+    }
+
+    Ok(())
 }
+```
 
-pub fn find_remote_procedure(
-    mod_name: &str,
-    owned_process: &impl ProcessIdentifier,
-    remote_process: &impl ProcessIdentifier,
-    function_address: usize,
-) -> Option<usize> {
-    let internal_module = find_mod_map_fuzzy(mod_name, owned_process)?;
-    println!(
-        "Identifed internal range {mod_name:?} ({:?}) at {:X?}",
-        internal_module.filename(),
-        internal_module.start()
-    );
-
-    let remote_module = find_mod_map_fuzzy(mod_name, remote_process)?;
-    println!(
-        "Identifed remote range {mod_name:?} ({:?}) at {:X?}",
-        remote_module.filename(),
-        remote_module.start()
-    );
-
-    Some(function_address - internal_module.start() + remote_module.start())
-}
-
-fn main() {
-    let target_pid: pid_t = 7777;
-    let traced_process = TracedProcess::attach(RawProcess::new(target_pid))
-        .expect("active process running with desired pid");
-
-    println!("Successfully attached to the process");
-    let libc_path = "libc";
-    let getpid_remote_procedure = find_remote_procedure(
-        libc_path,
-        &RawProcess::new(std::process::id() as pid_t),
-        &traced_process,
-        libc::getpid as usize,
-    )
-    .expect("active process links libc::getpid");
-    println!("Found remote getpid procedure at: {getpid_remote_procedure:X?}");
-
-    let frame = traced_process
-        .next_frame()
-        .expect("able to wait for a process frame");
-    println!("Successfully waited for a frame");
-
-    // we do not need the frame any further after this, but if you wanted to do more function calls you would hold on to the frame for further execution.
-    let (regs, _frame) = frame
-        .invoke_remote(getpid_remote_procedure, 0, &[])
-        .expect("able to execute getpid");
-    println!("Successfully executed remote getpid");
-
-    let traceed_pid = regs.return_value() as pid_t;
-    println!("The return value (Traceed Pid) was {traceed_pid}");
-
-    // we didn't hold on to the frame any further, but you could for instance recall getpid again here or chroot, etc...
-}
+example output
+````
+parent: process with pid: 26042
+parent: forked child process spawned with pid: 26068
+child : process started with pid: 26068
+parent: attaching to child process 26068
+parent: successfully attached to the process
+parent: successfully waited for a frame
+parent: successfully executed remote getpid
+parent: the return value (Traced Pid) was 26068
+parent: killing child process
+parent: child process terminated
 ```
