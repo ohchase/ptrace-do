@@ -2,7 +2,7 @@ mod arch;
 use arch::UserRegs;
 
 use libc::{pid_t, ptrace, PTRACE_ATTACH, PTRACE_CONT, PTRACE_DETACH};
-use std::{mem, process::Child};
+use std::{io, mem};
 use thiserror::Error;
 
 /// Utility function that converts the usize inputs individually with the appropriate endianness into a Vec<u8>
@@ -15,7 +15,7 @@ fn usize_arr_to_u8(data: &[usize]) -> Vec<u8> {
             arr.extend_from_slice(&p.to_le_bytes());
         }
     }
-    return arr;
+    arr
 }
 
 /// Enum containing all errors tracing can witness
@@ -23,11 +23,11 @@ fn usize_arr_to_u8(data: &[usize]) -> Vec<u8> {
 pub enum TraceError {
     /// Error spawning from syscall interactions
     #[error("Ptrace error: `{0}`")]
-    Ptrace(std::io::Error),
+    Ptrace(io::Error),
 
     /// Error during read and writing of process's memory
     #[error("IO Error: `{0}`")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
 
     /// Contexted error
     #[error("General `{0}`")]
@@ -36,79 +36,6 @@ pub enum TraceError {
 
 /// Internal Result type
 pub type TraceResult<T> = Result<T, TraceError>;
-
-/// Trait representing the type represents a process and has a unique process identifier, pid.
-pub trait ProcessIdentifier {
-    /// Acces the pid
-    fn pid(&self) -> pid_t;
-}
-
-/// A raw process, initialized by an explicit pid. Unsafe and prone to permission errors beware,
-/// know your environment and security restrictions.
-pub struct RawProcess {
-    pid: pid_t,
-}
-
-impl ProcessIdentifier for RawProcess {
-    fn pid(&self) -> pid_t {
-        self.pid
-    }
-}
-
-impl RawProcess {
-    /// Initialize raw process with the explicit pid
-    pub fn new(pid: pid_t) -> Self {
-        Self { pid }
-    }
-}
-
-/// An owned process.
-pub struct OwnedProcess {
-    child: Child,
-}
-
-/// An owned process can be initialized from a Child os process
-impl From<Child> for OwnedProcess {
-    fn from(value: Child) -> Self {
-        Self { child: value }
-    }
-}
-
-/// Will attempt to kill the child on drop.
-/// Never panics only logs an error
-impl Drop for OwnedProcess {
-    fn drop(&mut self) {
-        if let Err(e) = self.child.kill() {
-            tracing::error!("Unable to kill owned process's child {e:?}");
-        } else {
-            tracing::debug!("Owned process has been killed.");
-        }
-    }
-}
-
-impl ProcessIdentifier for OwnedProcess {
-    fn pid(&self) -> pid_t {
-        self.child.id() as pid_t
-    }
-}
-
-/// A process actively being traced.
-/// Simply a wrapper around a type with an identifiable process identifier.
-pub struct TracedProcess<T>
-where
-    T: ProcessIdentifier,
-{
-    process: T,
-}
-
-impl<T> ProcessIdentifier for TracedProcess<T>
-where
-    T: ProcessIdentifier,
-{
-    fn pid(&self) -> pid_t {
-        self.process.pid()
-    }
-}
 
 /// The available wait options
 #[allow(unused)]
@@ -176,17 +103,11 @@ impl std::fmt::Debug for WaitStatus {
 /// Represents a traced process which is in the process of building a `frame`.
 /// `frame` can be thought of a mutable view into a stopped process's execution.
 /// Given you own a process frame, it is an appropriate time to edit registers, change instructions, and edit memory.
-pub struct ProcessFrame<T>
-where
-    T: ProcessIdentifier,
-{
-    process: TracedProcess<T>,
+pub struct ProcessFrame {
+    process: TracedProcess,
 }
 
-impl<T> ProcessFrame<T>
-where
-    T: ProcessIdentifier,
-{
+impl ProcessFrame {
     /// aarch64 specific get registers functionality.
     /// uses iovec's and GETREGSET
     #[cfg(target_arch = "aarch64")]
@@ -231,7 +152,7 @@ where
         func_address: usize,
         return_address: usize,
         parameters: &[usize],
-    ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
+    ) -> TraceResult<(UserRegs, ProcessFrame)> {
         use std::mem::size_of;
 
         const REGISTER_ARGUMENTS: usize = 8;
@@ -329,7 +250,7 @@ where
         func_address: usize,
         return_address: usize,
         parameters: &[usize],
-    ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
+    ) -> TraceResult<(UserRegs, ProcessFrame)> {
         use std::mem::size_of;
 
         const REGISTER_ARGUMENTS: usize = 4;
@@ -402,7 +323,7 @@ where
         func_address: usize,
         return_address: usize,
         parameters: &[usize],
-    ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
+    ) -> TraceResult<(UserRegs, ProcessFrame)> {
         use std::mem::size_of;
 
         let mut current_registers = self.query_registers()?;
@@ -466,7 +387,7 @@ where
         func_address: usize,
         return_address: usize,
         parameters: &[usize],
-    ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
+    ) -> TraceResult<(UserRegs, ProcessFrame)> {
         use std::mem::size_of;
 
         const REGISTER_ARGUMENTS: usize = 6;
@@ -570,18 +491,20 @@ where
     }
 
     /// Continue the process frame, consuming self.
-    fn step_cont(mut self) -> TraceResult<ProcessFrame<T>> {
+    fn step_cont(mut self) -> TraceResult<ProcessFrame> {
         self.process.cont()?;
         self.process.next_frame()
     }
 }
 
-/// Drop implementation that attempts to ptrace detach from the process.
-/// On failure there is a warning, but this does not ever panic.
-impl<T> Drop for TracedProcess<T>
-where
-    T: ProcessIdentifier,
-{
+/// A process actively being traced.
+pub struct TracedProcess {
+    pid: pid_t,
+}
+
+// Drop implementation that attempts to ptrace detach from the process.
+// On failure there is a warning, but this does not ever panic.
+impl Drop for TracedProcess {
     fn drop(&mut self) {
         let pid = self.pid();
         match self.detach() {
@@ -591,10 +514,7 @@ where
     }
 }
 
-impl<T> TracedProcess<T>
-where
-    T: ProcessIdentifier,
-{
+impl TracedProcess {
     /// Attempt to detach from the traced process
     fn detach(&mut self) -> TraceResult<()> {
         let result = unsafe { ptrace(PTRACE_DETACH, self.pid(), 0, 0) };
@@ -605,17 +525,17 @@ where
     }
 
     /// Attempt to attach from the traced process
-    pub fn attach(process: T) -> TraceResult<Self> {
-        let result = unsafe { ptrace(PTRACE_ATTACH, process.pid(), 0, 0) };
+    pub fn attach(pid: pid_t) -> TraceResult<Self> {
+        let result = unsafe { ptrace(PTRACE_ATTACH, pid, 0, 0) };
         match result == -1 {
             true => Err(TraceError::Ptrace(std::io::Error::last_os_error())),
-            false => Ok(Self { process }),
+            false => Ok(Self { pid }),
         }
     }
 
     /// pid of the actively traced process
     pub fn pid(&self) -> pid_t {
-        self.process.pid()
+        self.pid
     }
 
     /// continue execution
@@ -630,7 +550,7 @@ where
     /// wait for a status
     fn wait(&mut self, options: WaitOptions) -> TraceResult<WaitStatus> {
         let mut raw_status = 0;
-        let result = unsafe { libc::waitpid(self.process.pid(), &mut raw_status, options.into()) };
+        let result = unsafe { libc::waitpid(self.pid, &mut raw_status, options.into()) };
         if result == -1 {
             return Err(TraceError::Ptrace(std::io::Error::last_os_error()));
         }
@@ -641,7 +561,7 @@ where
     }
 
     /// wait for an untraced status consuming self and opening a process frame
-    pub fn next_frame(mut self) -> TraceResult<ProcessFrame<T>> {
+    pub fn next_frame(mut self) -> TraceResult<ProcessFrame> {
         let wait_status = self.wait(WaitOptions::Untraced)?;
         if wait_status.is_exited() {
             return Err(TraceError::General("Waiting stop received an exit signal"));
@@ -652,6 +572,6 @@ where
 
     /// path to the process's memory
     fn proc_mem_path(&self) -> String {
-        format!("/proc/{}/mem", self.process.pid())
+        format!("/proc/{}/mem", self.pid)
     }
 }
