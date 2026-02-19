@@ -152,7 +152,7 @@ impl ProcessFrame {
         func_address: usize,
         return_address: usize,
         parameters: &[usize],
-    ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
+    ) -> TraceResult<(UserRegs, ProcessFrame)> {
         use std::mem::size_of;
 
         const REGISTER_ARGUMENTS: usize = 8;
@@ -250,7 +250,7 @@ impl ProcessFrame {
         func_address: usize,
         return_address: usize,
         parameters: &[usize],
-    ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
+    ) -> TraceResult<(UserRegs, ProcessFrame)> {
         use std::mem::size_of;
 
         const REGISTER_ARGUMENTS: usize = 4;
@@ -323,7 +323,7 @@ impl ProcessFrame {
         func_address: usize,
         return_address: usize,
         parameters: &[usize],
-    ) -> TraceResult<(UserRegs, ProcessFrame<T>)> {
+    ) -> TraceResult<(UserRegs, ProcessFrame)> {
         use std::mem::size_of;
 
         let mut current_registers = self.query_registers()?;
