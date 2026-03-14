@@ -87,7 +87,7 @@ fn main() -> Result<()> {
 ```
 
 example output
-````
+```
 parent: process with pid: 26042
 parent: forked child process spawned with pid: 26068
 child : process started with pid: 26068
